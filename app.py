@@ -27,7 +27,24 @@ SIXTH_OPTIONS = [
 st.markdown("""
 <style>
 .block-container {padding-top:1.5rem}
-div[data-testid="stMetric"] {background:#fff; border:1px solid #e6e8f0; padding:12px; border-radius:14px}
+/* Metric cards: use dark text on a light background so values stay readable in every theme. */
+div[data-testid="stMetric"] {
+    background: #f3f4f6 !important;
+    color: #111827 !important;
+    border: 1px solid #d1d5db !important;
+    padding: 12px !important;
+    border-radius: 14px !important;
+}
+div[data-testid="stMetric"] label,
+div[data-testid="stMetric"] [data-testid="stMetricLabel"],
+div[data-testid="stMetric"] [data-testid="stMetricValue"],
+div[data-testid="stMetric"] [data-testid="stMetricDelta"],
+div[data-testid="stMetric"] p,
+div[data-testid="stMetric"] span,
+div[data-testid="stMetric"] svg {
+    color: #111827 !important;
+    fill: #111827 !important;
+}
 .hero {background:linear-gradient(120deg,#352a86,#6558d3,#a78bfa);color:white;padding:26px;border-radius:18px}
 </style>
 """, unsafe_allow_html=True)
