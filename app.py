@@ -84,9 +84,11 @@ DEFAULT_SUBJECTS = {
 # CBSE offerings and assessment schemes vary by class, school, and academic year.
 # Subject choices and marks here are configurable demonstration options, not an official guarantee.
 def subject_maximum(subject, grade_group):
+    # Repeated sixth-option subjects have a display suffix; use the underlying subject for marks.
+    base_subject = subject.replace(" (6th opt)", "")
     if grade_group in ("Classes 1–5", "Classes 6–9", "Class 10"):
         return 100  # simple demonstration scale; schools may use different assessment schemes
-    return SUBJECT_MAX.get(subject, 70)
+    return SUBJECT_MAX.get(base_subject, 70)
 
 st.markdown("""
 <style>
@@ -118,68 +120,112 @@ st.sidebar.caption("Academic Performance Predictor")
 page = st.sidebar.radio("Choose a page", ["🏠 Home", "📘 Predict one subject", "📊 Overall performance", "🏆 Leaderboard", "ℹ️ About"])
 st.sidebar.caption("Class XII AI project prototype")
 
+SCIENCE_COMBINATIONS = {
+    "Biomath (Biology + Mathematics)": ["English", "Physics", "Chemistry", "Biology", "Mathematics"],
+    "Biopsychology (Biology, without Math)": ["English", "Physics", "Chemistry", "Biology", "Psychology"],
+    "Biocomputer (Biology + Computer Science, without Math)": ["English", "Physics", "Chemistry", "Biology", "Computer Science"],
+    "Computer Science with Math": ["English", "Physics", "Chemistry", "Mathematics", "Computer Science"],
+    "PCM (Physics + Chemistry + Mathematics)": ["English", "Physics", "Chemistry", "Mathematics", "Physical Education (PE)"],
+    "PCB (Physics + Chemistry + Biology, without Math)": ["English", "Physics", "Chemistry", "Biology", "Physical Education (PE)"],
+    "Biology + Psychology (without Math)": ["English", "Biology", "Psychology", "Chemistry", "Physical Education (PE)"],
+    "Computer Science without Math": ["English", "Physics", "Chemistry", "Computer Science", "Psychology"],
+}
+
+COMMERCE_COMBINATIONS = {
+    "Commerce with Math": ["English", "Accountancy", "Business Studies", "Economics", "Mathematics"],
+    "Commerce with Applied Math": ["English", "Accountancy", "Business Studies", "Economics", "Applied Mathematics"],
+    "Commerce without Math": ["English", "Accountancy", "Business Studies", "Economics", "Entrepreneurship"],
+}
+
+HUMANITIES_COMBINATIONS = {
+    "History + Political Science + Geography": ["English", "History", "Political Science", "Geography", "Economics"],
+    "Psychology + Sociology": ["English", "Psychology", "Sociology", "Political Science", "History"],
+    "Humanities with Math": ["English", "History", "Political Science", "Economics", "Mathematics"],
+    "Humanities with Computer Science": ["English", "History", "Political Science", "Economics", "Computer Science"],
+}
+
+
 def subject_choices(prefix):
-    """Choose a grade group, then a stream or age-appropriate subject combination."""
+    """Blank-first subject selection, with optional senior-secondary combination shortcuts."""
     grade_group = st.selectbox(
         "Choose your class group", GRADE_GROUPS, key=f"{prefix}_grade_group",
         help="Choose Classes 1–5, Classes 6–9, Class 10, or Classes 11–12.",
     )
+    state_key = f"{prefix}_subjects"
 
     if grade_group == "Classes 11–12":
         stream = st.selectbox(
             "Choose your stream", list(SENIOR_STREAM_SUBJECTS.keys()),
             key=f"{prefix}_stream", help="Choose Science, Commerce, or Humanities.",
         )
-        available = SENIOR_STREAM_SUBJECTS[stream]
-        default_key = stream
-        state_key = f"{prefix}_subjects"
-        current = st.session_state.get(state_key, DEFAULT_SUBJECTS[default_key])
-        current = [x for x in current if x in available]
-        for x in DEFAULT_SUBJECTS[default_key]:
-            if len(current) >= 6:
-                break
-            if x in available and x not in current:
-                current.append(x)
-        st.session_state[state_key] = current[:6]
-        subjects = st.multiselect(
-            "Select subjects for your report (choose 5–7)", available, key=state_key,
-            help="Actual subject combinations depend on school offerings and CBSE rules.",
+        if stream == "Science":
+            combinations = SCIENCE_COMBINATIONS
+        elif stream == "Commerce":
+            combinations = COMMERCE_COMBINATIONS
+        else:
+            combinations = HUMANITIES_COMBINATIONS
+
+        combo_key = f"{prefix}_combination"
+        combo = st.selectbox(
+            "Quick-select a subject combination (optional)",
+            ["Choose a combination…"] + list(combinations.keys()), key=combo_key,
+            help="Choosing a combination fills the five main subjects once. You can then edit the subject list freely.",
         )
-        if not 5 <= len(subjects) <= 7:
-            st.warning(f"Select between 5 and 7 subjects. Currently selected: {len(subjects)}.")
+        last_combo_key = f"{prefix}_last_combination"
+        last_stream_key = f"{prefix}_last_stream"
+        if (st.session_state.get(last_combo_key) != combo or
+                st.session_state.get(last_stream_key) != stream):
+            if combo == "Choose a combination…":
+                # A stream change or clearing the combination starts with an empty selection.
+                st.session_state[state_key] = []
+            else:
+                st.session_state[state_key] = list(combinations[combo])
+            st.session_state[last_combo_key] = combo
+            st.session_state[last_stream_key] = stream
+
+        available = list(SENIOR_STREAM_SUBJECTS[stream])
+        # Add clearly labelled duplicate choices so one of the main five can also be the 6th option.
+        available += [f"{subject} (6th opt)" for subject in combinations.get(combo, []) if subject in available]
+        current = st.session_state.get(state_key, [])
+        current = [subject for subject in current if subject in available]
+        if len(current) > 8:
+            current = current[:8]
+        st.session_state[state_key] = current
+        subjects = st.multiselect(
+            "Select subjects for your report (up to 8)", available, key=state_key,
+            max_selections=8,
+            help="You can remove any subject or add another. Removed subjects will stay removed unless you choose a different combination.",
+        )
+        if not subjects:
+            st.info("Your report starts empty. Choose a combination above or add subjects here.")
+        else:
+            st.caption(f"{len(subjects)} of 8 subjects selected. You can include a repeated main subject as a labelled 6th option.")
         return subjects, grade_group
 
     if grade_group == "Class 10":
-        st.caption("Class 10 core subjects are included automatically. Choose any additional elective(s) offered by your school.")
-        lang1 = st.selectbox("Language 1", ["English", "Hindi", "Sanskrit", "Other Language"], key=f"{prefix}_lang1")
-        lang2_options = ["Hindi", "Sanskrit", "French", "German", "Spanish", "Regional Indian Language", "Other Language", "English"]
-        lang2 = st.selectbox("Language 2", [x for x in lang2_options if x != lang1], key=f"{prefix}_lang2")
-        optionals = st.multiselect(
-            "Optional 6th/7th subject(s)", CLASS10_OPTIONALS,
-            default=["Artificial Intelligence (Code 417)"], key=f"{prefix}_class10_optionals",
-            help="Select only subjects your school offers. Some options may have specific CBSE codes or availability requirements.",
-        )
-        subjects = [f"Language 1 — {lang1}", f"Language 2 — {lang2}", "Mathematics", "Science", "Social Science"] + optionals
-        return subjects, grade_group
+        available = ["Mathematics", "Science", "Social Science"] + CLASS10_OPTIONALS
+        # Language variants are explicit choices so the report selection remains blank until the user chooses.
+        available += ["Language 1 — English", "Language 1 — Hindi", "Language 1 — Sanskrit", "Language 1 — Other Language",
+                      "Language 2 — Hindi", "Language 2 — Sanskrit", "Language 2 — French", "Language 2 — German",
+                      "Language 2 — Spanish", "Language 2 — Regional Indian Language", "Language 2 — Other Language", "Language 2 — English"]
+    elif grade_group == "Classes 1–5":
+        available = PRIMARY_SUBJECTS
+    else:
+        available = MIDDLE_SUBJECTS
 
-    available = PRIMARY_SUBJECTS if grade_group == "Classes 1–5" else MIDDLE_SUBJECTS
-    default_key = grade_group
-    state_key = f"{prefix}_subjects"
-    current = st.session_state.get(state_key, DEFAULT_SUBJECTS[default_key])
-    current = [x for x in current if x in available]
-    for x in DEFAULT_SUBJECTS[default_key]:
-        if len(current) >= 6:
-            break
-        if x in available and x not in current:
-            current.append(x)
-    st.session_state[state_key] = current[:6]
+    # No defaults are injected on reruns: users can remove subjects without them reappearing.
+    current = st.session_state.get(state_key, [])
+    current = [subject for subject in current if subject in available][:8]
+    st.session_state[state_key] = current
     subjects = st.multiselect(
-        "Select subjects for your report", available, key=state_key,
-        help="These are broad example options. Your school's exact curriculum may differ.",
+        "Select subjects for your report (up to 8)", available, key=state_key,
+        max_selections=8,
+        help="Starts blank. Choose only the subjects you want to include; removed subjects will not be added back automatically.",
     )
     if not subjects:
-        st.warning("Select at least one subject to continue.")
-    st.caption("Subject names and assessment methods can vary between schools. Confirm the exact list with your school.")
+        st.info("Your report starts empty. Select one or more subjects to continue.")
+    else:
+        st.caption(f"{len(subjects)} of 8 subjects selected.")
     return subjects, grade_group
 
 def build_model(subject, grade_group):
@@ -241,8 +287,8 @@ if page == "🏠 Home":
 elif page == "📘 Predict one subject":
     st.title("📘 Predict one subject")
     subjects, grade_group = subject_choices("one")
-    if not 5 <= len(subjects) <= 7:
-        st.info("Select between five and seven subjects above to continue.")
+    if not subjects:
+        st.info("Choose at least one subject above to continue.")
     else:
         subject = st.selectbox("Subject to predict", subjects)
         maximum = subject_maximum(subject, grade_group)
@@ -267,8 +313,8 @@ elif page == "📘 Predict one subject":
 elif page == "📊 Overall performance":
     st.title("📊 Overall performance")
     subjects, grade_group = subject_choices("all")
-    if not 5 <= len(subjects) <= 7:
-        st.info("Select between five and seven subjects above to enter marks and calculate your overall performance.")
+    if not subjects:
+        st.info("Choose at least one subject above to enter marks and calculate your overall performance.")
     else:
         st.write("Enter previous marks for each selected subject. The maximum is shown beside each subject.")
         with st.form("overall_form"):
@@ -341,7 +387,7 @@ else:
     st.markdown("**Project:** Academic Performance Predictor Using Machine Learning  \n**School:** Bharatiya Vidya Bhavan  \n**Class:** XII  \n**AI teacher:** Murali Sankar V.K.  \n**Team:** R. Devdutt, Rishabh Nair, Kashinath JS, Abhiram S")
     st.subheader("How it works")
     st.write("The prototype uses Linear Regression from scikit-learn. A separate model is created for each subject using generated synthetic example records.")
-    st.write("Subject selection: choose Class 1 through Class 12. Classes 11–12 include Science, Commerce, and Humanities stream options. Class 10 includes five core subjects and optional/elective choices based on the supplied CBSE subject list. These are configurable examples; confirm exact offerings and assessment patterns with your school.")
+    st.write("Subject selection starts blank and allows up to eight subjects. Classes 11–12 include Science, Commerce, and Humanities stream options with quick-select subject combinations that can be edited. Class 10 and earlier classes have selectable subject lists. These are configurable examples; confirm exact offerings and assessment patterns with your school.")
     st.info("For Classes 1–10, this prototype uses a 100-mark demo scale per subject. For Classes 11–12, it uses configured illustrative subject maximums. Actual school and CBSE assessment schemes may differ. Percentage is marks obtained divided by total maximum marks, multiplied by 100; percentile is not calculated.")
     st.subheader("Limitations")
     st.markdown("- Synthetic data only; no real student records are included.\n- Predictions are illustrative, not guaranteed.\n- Leaderboard is session-only in this starter version.\n- Obtain permission and protect privacy before collecting real student data.")
